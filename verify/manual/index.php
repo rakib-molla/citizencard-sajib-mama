@@ -9,7 +9,9 @@ $name = isset($_POST['name']) ? trim($_POST['name']) : (isset($_GET['name']) ? t
 $errors = [];
 $successMessage = '';
 $topError = '';
-$isSubmitted = ($_SERVER['REQUEST_METHOD'] === 'POST');
+// Check if details are submitted via POST or fully pre-filled via GET (e.g. redirected from QR scan)
+$isGetPrefilled = (!empty($cardNumber) && !empty($dobDay) && !empty($dobMonth) && !empty($dobYear) && !empty($name));
+$isSubmitted = ($_SERVER['REQUEST_METHOD'] === 'POST') || ($_SERVER['REQUEST_METHOD'] === 'GET' && $isGetPrefilled);
 
 // Check if user redirected from a failed QR code scan
 $qrError = isset($_GET['qr_error']) && $_GET['qr_error'] === 'invalid';
@@ -17,7 +19,7 @@ if ($qrError) {
     $topError = 'QR code is invalid - the card may not be genuine. Enter full card details below. If no match is found, the card is fake - hold it and report the user to the police.';
 }
 
-if ($isSubmitted) {
+if ($isSubmitted && !$qrError) {
     // Validate Card Number
     if (empty($cardNumber)) {
         $errors['card_number'] = 'The card number is required';
