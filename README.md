@@ -1,0 +1,1 @@
+[http://192.168.0.110/verify-citizencard/verify/scan?card_number=5843424242424242&dob_day=30&dob_month=Jan&dob_year=2000&name=Professor%20Faruq%20Ahmed](http://192.168.0.110/verify-citizencard/verify/scan?card_number=5843424242424242&dob_day=30&dob_month=Jan&dob_year=2000&name=Professor%20Faruq%20Ahmed)

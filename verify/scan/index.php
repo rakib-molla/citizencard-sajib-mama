@@ -258,7 +258,7 @@
         // Validate if we have the minimum required card fields (e.g. card_number and name)
         if (parsed && (parsed.card_number || parsed.name)) {
             // Build redirect URL to manual verify page
-            let redirectUrl = 'https://verify.citizencard.com/verify/manual?';
+            let redirectUrl = 'https://mycitizencard.com/manaul-card';
             let params = new URLSearchParams();
             if (parsed.card_number) params.append('card_number', parsed.card_number);
             if (parsed.dob_day) params.append('dob_day', parsed.dob_day);
@@ -269,7 +269,7 @@
             window.location.href = redirectUrl + params.toString();
         } else {
             // QR does not contain correct card fields, redirect to manual verification showing error
-            window.location.href = 'https://verify.citizencard.com/verify/manual?';
+            window.location.href = 'https://mycitizencard.com/manaul-card';
         }
     }
 
