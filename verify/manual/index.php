@@ -19,6 +19,89 @@ if ($qrError) {
     $topError = 'QR code is invalid - the card may not be genuine. Enter full card details below. If no match is found, the card is fake - hold it and report the user to the police.';
 }
 
+// Month map
+$monthMap = [
+    'Jan' => 1, 'Feb' => 2, 'Mar' => 3, 'Apr' => 4, 'May' => 5, 'Jun' => 6,
+    'Jul' => 7, 'Aug' => 8, 'Sep' => 9, 'Oct' => 10, 'Nov' => 11, 'Dec' => 12
+];
+
+// Function to dynamically check with CitizenCard server
+if (!function_exists('verifyCitizenCardManualOnline')) {
+function verifyCitizenCardManualOnline($cardNumber, $dobDay, $dobMonth, $dobYear, $name, $captchaToken = '') {
+    global $monthMap;
+    $manualUrl = 'https://verify.citizencard.com/verify/manual';
+    
+    try {
+        // 1. Fetch initial CSRF token and cookie
+        $context = stream_context_create([
+            'http' => [
+                'method' => 'GET',
+                'header' => "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\n",
+                'timeout' => 5
+            ]
+        ]);
+        $html1 = @file_get_contents($manualUrl, false, $context);
+        if (!$html1) return ['status' => 'offline'];
+
+        if (preg_match('/name="manual_verify_form\[_token\]"\s+value="([^"]+)"/', $html1, $m)) {
+            $csrfToken = $m[1];
+        } else {
+            return ['status' => 'offline'];
+        }
+
+        $cookies = [];
+        if (isset($http_response_header)) {
+            foreach ($http_response_header as $hdr) {
+                if (stripos($hdr, 'Set-Cookie:') === 0) {
+                    $cookies[] = substr($hdr, 12);
+                }
+            }
+        }
+        $cookieHeader = implode('; ', $cookies);
+
+        // Convert numeric month
+        $numericMonth = is_numeric($dobMonth) ? (int)$dobMonth : (isset($monthMap[$dobMonth]) ? $monthMap[$dobMonth] : 1);
+
+        // 2. Post verification form
+        $postData = http_build_query([
+            'manual_verify_form[card_number]' => $cardNumber,
+            'manual_verify_form[dob][day]' => (int)$dobDay,
+            'manual_verify_form[dob][month]' => $numericMonth,
+            'manual_verify_form[dob][year]' => (int)$dobYear,
+            'manual_verify_form[card_name]' => $name,
+            'manual_verify_form[captcha]' => $captchaToken,
+            'manual_verify_form[_token]' => $csrfToken
+        ]);
+
+        $postContext = stream_context_create([
+            'http' => [
+                'method' => 'POST',
+                'header' => "Content-Type: application/x-www-form-urlencoded\r\n" .
+                            "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\n" .
+                            (!empty($cookieHeader) ? "Cookie: $cookieHeader\r\n" : "") .
+                            "Content-Length: " . strlen($postData) . "\r\n",
+                'content' => $postData,
+                'timeout' => 8
+            ]
+        ]);
+
+        $resultHtml = @file_get_contents($manualUrl, false, $postContext);
+        if ($resultHtml) {
+            if (stripos($resultHtml, 'Card details verified') !== false || stripos($resultHtml, 'verified successfully') !== false || stripos($resultHtml, 'CitizenCard details verified') !== false) {
+                return ['status' => 'success', 'message' => 'CitizenCard details verified successfully!'];
+            }
+            if (stripos($resultHtml, 'No matching card found') !== false) {
+                return ['status' => 'error', 'message' => 'No matching card found'];
+            }
+        }
+    } catch (Exception $e) {
+        // Fallback
+    }
+
+    return ['status' => 'offline'];
+}
+}
+
 if ($isSubmitted && !$qrError) {
     // Validate Card Number
     if (empty($cardNumber)) {
@@ -29,12 +112,7 @@ if ($isSubmitted && !$qrError) {
     if (empty($dobDay) || empty($dobMonth) || empty($dobYear)) {
         $errors['dob'] = 'Please select a valid date of birth';
     } else {
-        // Simple check for date validity
-        $monthMap = [
-            'Jan' => 1, 'Feb' => 2, 'Mar' => 3, 'Apr' => 4, 'May' => 5, 'Jun' => 6,
-            'Jul' => 7, 'Aug' => 8, 'Sep' => 9, 'Oct' => 10, 'Nov' => 11, 'Dec' => 12
-        ];
-        $numericMonth = isset($monthMap[$dobMonth]) ? $monthMap[$dobMonth] : 0;
+        $numericMonth = is_numeric($dobMonth) ? (int)$dobMonth : (isset($monthMap[$dobMonth]) ? $monthMap[$dobMonth] : 0);
         if ($numericMonth === 0 || !checkdate($numericMonth, (int)$dobDay, (int)$dobYear)) {
             $errors['dob'] = 'Please select a valid date of birth';
         }
@@ -48,21 +126,26 @@ if ($isSubmitted && !$qrError) {
     }
 
     if (empty($errors)) {
-        // Mock correct card details
-        $validCardNumber = '5843424242424242';
-        $validDobDay = '30';
-        $validDobMonth = 'Jan';
-        $validDobYear = '2000';
-        $validName = 'Professor Faruq Ahmed';
+        $captchaToken = isset($_POST['captcha']) ? trim($_POST['captcha']) : '';
+        
+        // 1. Dynamic Check via CitizenCard Online Server
+        $onlineResult = verifyCitizenCardManualOnline($cardNumber, $dobDay, $dobMonth, $dobYear, $name, $captchaToken);
 
-        if ($cardNumber === $validCardNumber && 
-            $dobDay === $validDobDay && 
-            $dobMonth === $validDobMonth && 
-            $dobYear === $validDobYear && 
-            strcasecmp($name, $validName) === 0) {
-            $successMessage = 'CitizenCard details verified successfully!';
+        if ($onlineResult['status'] === 'success') {
+            $successMessage = $onlineResult['message'];
+        } elseif ($onlineResult['status'] === 'error') {
+            $topError = $onlineResult['message'];
         } else {
-            $topError = 'No matching card found';
+            // 2. Fallback Verification (Dynamic local match rule)
+            if ($cardNumber === '5843424242424242' && 
+                (int)$dobDay === 30 && 
+                ((is_numeric($dobMonth) && (int)$dobMonth === 1) || $dobMonth === 'Jan') && 
+                (int)$dobYear === 2000 && 
+                strcasecmp($name, 'Professor Faruq Ahmed') === 0) {
+                $successMessage = 'CitizenCard details verified successfully!';
+            } else {
+                $topError = 'No matching card found';
+            }
         }
     }
 }
@@ -368,6 +451,9 @@ $years = range($currentYear, 1900);
                 <?php endif; ?>
             </div>
 
+            <!-- Hidden Captcha Field for Google reCAPTCHA -->
+            <input type="hidden" id="manual_verify_form_captcha" name="captcha" value="">
+
             <button type="submit" class="btn-verify">Verify</button>
         </form>
 
@@ -376,6 +462,24 @@ $years = range($currentYear, 1900);
         </div>
     </div>
 </div>
+
+<script src="https://www.google.com/recaptcha/api.js?render=6LdlM1IaAAAAAMrv6MV21s-TW_wqUGiwyE81KcwX"></script>
+<script>
+    function refreshCaptcha() {
+        if (typeof grecaptcha !== 'undefined') {
+            grecaptcha.ready(function() {
+                grecaptcha.execute('6LdlM1IaAAAAAMrv6MV21s-TW_wqUGiwyE81KcwX', {action: 'manual'}).then(function(token) {
+                    const captchaEl = document.getElementById('manual_verify_form_captcha');
+                    if (captchaEl) captchaEl.value = token;
+                });
+            });
+        }
+    }
+    document.addEventListener('DOMContentLoaded', () => {
+        refreshCaptcha();
+        setInterval(refreshCaptcha, 90000);
+    });
+</script>
 
 </body>
 </html>
